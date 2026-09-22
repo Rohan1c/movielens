@@ -1,0 +1,15 @@
+# Theme for the demo app. Local credentials live beside this file in secrets.toml, which
+# is gitignored.
+[theme]
+base = "dark"
+primaryColor = "#E05D44"
+backgroundColor = "#18191C"
+secondaryBackgroundColor = "#232428"
+textColor = "#E6E6E6"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
