@@ -136,6 +136,26 @@ class ContentBased(Recommender):
             return None
         return self.profile_matrix[position]
 
+    def fold_in(self, user_id, ratings):
+        """Build a profile for a new user from their ratings, without touching items.
+
+        The item vectors and the calibration scale were fitted without this user and do not
+        change; only a new profile row is added, computed the same way fit computes one.
+        """
+        super().fold_in(user_id, ratings)
+        user_id = int(user_id)
+        values = ratings["rating"].to_numpy(dtype=np.float64)
+        item_ids = ratings["item_id"].to_numpy(dtype=np.int64)
+        centre = float(np.mean(values))
+        self.user_mean[user_id] = centre
+        rows, weights = self.aligned_rows_and_weights(item_ids, values - centre)
+        profile = np.zeros(self.feature_matrix.shape[1], dtype=np.float64)
+        if len(rows) > 0:
+            profile = weighted_profile(self.feature_matrix, rows, weights)
+        self.user_index[user_id] = self.profile_matrix.shape[0]
+        self.profile_matrix = np.vstack([self.profile_matrix, profile[np.newaxis, :]])
+        return self
+
     def rank_scores(self, user_id, candidate_items):
         """Cosine similarity in [-1, 1]. Unknown users score zero everywhere."""
         self.check_fitted()

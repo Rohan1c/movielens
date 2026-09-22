@@ -95,6 +95,31 @@ class Recommender(ABC):
             self.train_items_by_user[int(user_id)] = set(int(i) for i in items)
         self.is_fitted = True
 
+    def fold_in(self, user_id, ratings):
+        """Add a user who was not in the training data, without refitting.
+
+        ``ratings`` has ``item_id`` and ``rating`` columns. After this call the new user is
+        indistinguishable from a training user as far as ``predict`` and ``recommend`` are
+        concerned, which is what lets the same models serve someone who arrives after
+        training - the step that turns this comparison into something usable.
+
+        The base class records only what every model needs: which items to exclude from
+        the user's candidates. Models with per-user state extend it.
+        """
+        self.check_fitted()
+        user_id = int(user_id)
+        if user_id in self.known_users:
+            raise ValueError(
+                "user " + str(user_id) + " is already known to " + self.name
+                + "; fold in a new id rather than overwriting a training user"
+            )
+        items = set()
+        for item_id in ratings["item_id"]:
+            items.add(int(item_id))
+        self.train_items_by_user[user_id] = items
+        self.known_users.add(user_id)
+        return self
+
     def candidate_items(self, user_id):
         """All training items the user has not already rated."""
         seen = self.train_items_by_user.get(int(user_id), set())

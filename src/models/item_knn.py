@@ -64,9 +64,11 @@ class ItemKNN(Recommender):
         self.similarity = None
         self.centre_means = None
         self.item_means = None
+        self.folded_rows = {}
 
     def fit(self, train_ratings):
         self.record_training_data(train_ratings)
+        self.folded_rows = {}
         self.rating_matrix = build_rating_matrix(train_ratings)
         centred, means = centre_matrix(self.rating_matrix.matrix, self.centering)
         self.centre_means = means
@@ -83,13 +85,34 @@ class ItemKNN(Recommender):
         by column. User centring stores one mean per user, so every deviation for that user
         uses the same value.
         """
-        positions, values = self.rating_matrix.user_row(user_id)
+        folded = self.folded_rows.get(int(user_id))
+        if folded is not None:
+            positions, values = folded
+        else:
+            positions, values = self.rating_matrix.user_row(user_id)
         if len(positions) == 0:
             return positions, values
         if self.centering == "item":
             return positions, values - self.centre_means[positions]
+        if folded is not None:
+            return positions, values - float(np.mean(values))
         user_position = self.rating_matrix.user_position.get(int(user_id))
         return positions, values - self.centre_means[user_position]
+
+    def fold_in(self, user_id, ratings):
+        """Record the new user's ratings; the item-item similarities are unchanged.
+
+        A neighbourhood model needs nothing learned per user - a prediction is built from
+        the item similarities and whatever the user has rated - so folding in is only a
+        matter of making those ratings visible to ``deviations_for``.
+        """
+        super().fold_in(user_id, ratings)
+        item_ids = ratings["item_id"].to_numpy(dtype=np.int64)
+        values = ratings["rating"].to_numpy(dtype=np.float64)
+        positions = self.rating_matrix.item_positions(item_ids)
+        known = positions >= 0
+        self.folded_rows[int(user_id)] = (positions[known], values[known])
+        return self
 
     def predict(self, user_id, candidate_items):
         self.check_fitted()

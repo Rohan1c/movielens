@@ -250,6 +250,45 @@ class MatrixFactorization(Recommender):
                 error * previous_user - regularisation * item_vector
             )
 
+    def fold_in(self, user_id, ratings):
+        """Solve for a new user's bias and factors with every item parameter held fixed.
+
+        With the item side frozen this is a small ridge regression rather than an SGD run:
+        the target is ``rating - mu - b_i`` and the features are ``[1, q_i]``. The penalty
+        mirrors the training objective summed over the user's n ratings - n * lambda on the
+        factors, and beta on the bias when frequency-aware shrinkage is on - so a folded-in
+        user is regularised the way a trained one would have been.
+        """
+        super().fold_in(user_id, ratings)
+        item_ids = ratings["item_id"].to_numpy(dtype=np.int64)
+        values = ratings["rating"].to_numpy(dtype=np.float64)
+        positions = self.rating_matrix.item_positions(item_ids)
+        known = positions >= 0
+        positions = positions[known]
+        values = values[known]
+
+        bias = 0.0
+        factors = np.zeros(self.n_factors, dtype=np.float64)
+        if len(positions) > 0:
+            count = float(len(positions))
+            targets = values - self.global_mean - self.item_bias[positions]
+            features = np.hstack([
+                np.ones((len(positions), 1), dtype=np.float64),
+                self.item_factors[positions],
+            ])
+            penalty = np.full(self.n_factors + 1, count * self.regularisation)
+            if self.bias_shrinkage > 0.0:
+                penalty[0] = self.bias_shrinkage
+            system = features.T @ features + np.diag(penalty)
+            solution = np.linalg.solve(system, features.T @ targets)
+            bias = float(solution[0])
+            factors = solution[1:]
+
+        self.rating_matrix.user_position[int(user_id)] = self.user_factors.shape[0]
+        self.user_bias = np.append(self.user_bias, bias)
+        self.user_factors = np.vstack([self.user_factors, factors[np.newaxis, :]])
+        return self
+
     def cache_key(self, users, items, ratings):
         """Identify a fit by its hyperparameters, its seed and the exact training data.
 

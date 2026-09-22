@@ -71,6 +71,7 @@ def build_model(name, config, items, validation=None, cache=False):
             regularisation=params["regularisation"],
             n_epochs=params["n_epochs"],
             patience=params["patience"],
+            bias_shrinkage=params.get("bias_shrinkage", 0.0),
             validation=validation,
             cache=cache,
         )

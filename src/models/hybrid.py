@@ -142,6 +142,14 @@ class WeightedHybrid(Recommender):
             self.fit_density_curve(self.validation)
         return self
 
+    def fold_in(self, user_id, ratings):
+        """Fold the new user into both components; the blend weight follows their history."""
+        super().fold_in(user_id, ratings)
+        self.content_model.fold_in(user_id, ratings)
+        self.cf_model.fold_in(user_id, ratings)
+        self.train_history[int(user_id)] = int(len(ratings))
+        return self
+
     def weight_for(self, user_id):
         """How much of the blend goes to the content model, in [0, 1]."""
         if self.weight_mode == "fixed":

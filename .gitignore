@@ -24,3 +24,7 @@ Thumbs.db
 # input export is personal data. Neither belongs in a shared repository.
 results/qualitative.csv
 *letterboxd*.csv
+
+# Local credentials, such as the TMDB key used for film posters. Never commit these.
+.streamlit/secrets.toml
+.env

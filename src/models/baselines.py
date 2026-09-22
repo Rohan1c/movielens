@@ -56,6 +56,14 @@ class UserMean(Recommender):
         scores = np.full(len(candidate_items), self.global_mean + bias, dtype=np.float64)
         return self.clip(scores)
 
+    def fold_in(self, user_id, ratings):
+        """Shrunk user bias from the new ratings, exactly as fit computes it."""
+        super().fold_in(user_id, ratings)
+        values = ratings["rating"].to_numpy(dtype=np.float64)
+        total = float(np.sum(values - self.global_mean))
+        self.user_bias[int(user_id)] = total / (len(values) + self.shrinkage)
+        return self
+
 
 class ItemMean(Recommender):
     """Predict the global mean plus a shrunk per-item bias."""
