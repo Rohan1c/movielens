@@ -18,10 +18,13 @@ Three methods make up the contract:
     Return the top ``k`` item ids for a user, excluding items already rated in training.
 """
 
+import copy
 from abc import ABC
 from abc import abstractmethod
 
 import numpy as np
+
+from src.data.matrix import RatingMatrix
 
 RATING_COLUMNS = ["user_id", "item_id", "rating", "timestamp"]
 
@@ -94,6 +97,29 @@ class Recommender(ABC):
         for user_id, items in grouped:
             self.train_items_by_user[int(user_id)] = set(int(i) for i in items)
         self.is_fitted = True
+
+    def fork(self):
+        """A cheap copy that users can be folded into without touching this model.
+
+        Only the per-user containers are copied - the dicts and sets that fold-in inserts
+        into. The fitted arrays are shared, which is safe because fold-in never edits an
+        array in place: it builds a new one and reassigns it. That keeps a fork to a few
+        kilobytes where a deep copy of a fitted model would be tens of megabytes, so an app
+        can fork for every request and leave the trained model exactly as it was.
+        """
+        clone = copy.copy(self)
+        for name, value in vars(self).items():
+            if isinstance(value, dict):
+                setattr(clone, name, dict(value))
+            elif isinstance(value, set):
+                setattr(clone, name, set(value))
+            elif isinstance(value, Recommender):
+                setattr(clone, name, value.fork())
+            elif isinstance(value, RatingMatrix):
+                matrix = copy.copy(value)
+                matrix.user_position = dict(value.user_position)
+                setattr(clone, name, matrix)
+        return clone
 
     def fold_in(self, user_id, ratings):
         """Add a user who was not in the training data, without refitting.
