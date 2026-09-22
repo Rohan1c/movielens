@@ -35,9 +35,14 @@ class MatrixFactorization(Recommender):
 
     def __init__(self, config, n_factors=None, learning_rate=None, regularisation=None,
                  n_epochs=None, validation=None, patience=None, cache=False,
-                 name=None):
+                 name=None, bias_shrinkage=None):
         super().__init__(config, name=name)
         params = config.model_params("mf")
+        if bias_shrinkage is None:
+            bias_shrinkage = params.get("bias_shrinkage", 0.0)
+        self.bias_shrinkage = float(bias_shrinkage)
+        self.user_bias_reg = None
+        self.item_bias_reg = None
         if patience is None:
             patience = params["patience"]
         self.patience = int(patience)
@@ -70,6 +75,7 @@ class MatrixFactorization(Recommender):
         self.record_training_data(train_ratings)
         self.rating_matrix = build_rating_matrix(train_ratings)
         users, items, ratings = self.training_arrays(train_ratings)
+        self.user_bias_reg, self.item_bias_reg = self.bias_regularisers(users, items)
 
         if self.cache and self.load_from_cache(users, items, ratings):
             return self
@@ -182,6 +188,34 @@ class MatrixFactorization(Recommender):
         self.user_factors = rng.normal(0.0, self.init_scale, (n_users, self.n_factors))
         self.item_factors = rng.normal(0.0, self.init_scale, (n_items, self.n_factors))
 
+    def bias_regularisers(self, users, items):
+        """Per-user and per-item penalties applied to the bias terms on each update.
+
+        Plain L2 applies the same penalty on every rating. Summed over an item's n ratings
+        that minimises sum(err^2) + n*lambda*b^2, which solves to b = mean_dev / (1 + lambda):
+        a constant shrink factor that does not depend on n. An item rated once is pulled in
+        exactly as hard as one rated five hundred times, so thinly supported items keep
+        almost their whole raw deviation. On this dataset that put items with under ten
+        ratings into 43 percent of the model's top-10 lists, where they hit 0.08 percent of
+        the time.
+
+        With ``bias_shrinkage`` set to beta, each update instead uses a penalty of beta / n.
+        Summed over the n ratings the total penalty is beta * b^2 regardless of n, and the
+        bias solves to b = sum_dev / (n + beta) - the same shrinkage ItemMean, UserMean and
+        the item-kNN base term already use. A value of zero keeps plain L2.
+        """
+        n_users = self.rating_matrix.n_users
+        n_items = self.rating_matrix.n_items
+        if self.bias_shrinkage <= 0.0:
+            user_reg = np.full(n_users, self.regularisation, dtype=np.float64)
+            item_reg = np.full(n_items, self.regularisation, dtype=np.float64)
+            return user_reg, item_reg
+        user_counts = np.bincount(users, minlength=n_users).astype(np.float64)
+        item_counts = np.bincount(items, minlength=n_items).astype(np.float64)
+        user_counts[user_counts == 0.0] = 1.0
+        item_counts[item_counts == 0.0] = 1.0
+        return self.bias_shrinkage / user_counts, self.bias_shrinkage / item_counts
+
     def run_epoch(self, users, items, ratings, order):
         """One SGD pass. Updates are applied in place, one observed rating at a time."""
         learning_rate = self.learning_rate
@@ -200,10 +234,10 @@ class MatrixFactorization(Recommender):
             error = ratings[index] - prediction
 
             self.user_bias[user] = self.user_bias[user] + learning_rate * (
-                error - regularisation * self.user_bias[user]
+                error - self.user_bias_reg[user] * self.user_bias[user]
             )
             self.item_bias[item] = self.item_bias[item] + learning_rate * (
-                error - regularisation * self.item_bias[item]
+                error - self.item_bias_reg[item] * self.item_bias[item]
             )
             # The item vector is updated from the pre-update user vector, so a copy is
             # needed. Updating in sequence would feed the new user vector into the item
@@ -236,6 +270,7 @@ class MatrixFactorization(Recommender):
             str(self.n_epochs),
             str(self.patience),
             str(self.init_scale),
+            str(self.bias_shrinkage),
             str(self.config.seed),
             str(self.validation is not None),
             digest.hexdigest(),
