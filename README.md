@@ -1,45 +1,55 @@
 # MovieLens 100K — four recommenders, one protocol
 
-A controlled comparison of four recommender families on MovieLens 100K. The deliverable is
-not a recommender; it is the comparison. Four approaches are pushed through an identical
-split, an identical candidate set and an identical metric suite, so we can say precisely
-where each one wins and what it pays for the win.
+A controlled comparison of four recommender families on MovieLens 100K: baselines,
+content-based, collaborative filtering (item-kNN and matrix factorisation) and a hybrid.
+Every method goes through the same split, the same candidate set and the same metrics, so
+the differences are the methods and nothing else. A demo app on top serves the same trained
+models to real people, including people who aren't in the dataset.
 
-Two of the four are registered twice, tuned once for accuracy and once for ranking,
-because the two criteria select different hyperparameters for the same algorithm, and
-the hybrid is registered twice as well — once weighted by profile density and once at a
-fixed point on the accuracy-coverage frontier. Eleven models in total.
+Item-kNN and matrix factorisation are each registered twice, tuned once for accuracy and
+once for ranking, and the hybrid is registered twice as well (density-weighted and at a
+fixed weight). Eleven models in total.
 
-The claim the repository exists to support, as the results now stand:
+## Findings
 
-> Under one protocol, **no personalised model beats a popularity baseline on precision@10**
-> — and the reason is that precision@10 largely measures popularity rather than accuracy
-> (r = 0.91 against popularity bias, 0.53 against RMSE). Tuning an algorithm on ranking
-> instead of accuracy moves it *towards* the popularity baseline rather than past it.
-> Matrix factorisation wins on rating accuracy while concentrating on a narrow slice of the
-> catalogue; content-based scoring is 15% worse on RMSE and spreads three times wider.
-
-Both of the plan's original predictions have now been tested. **The hybrid one held**: a
-density-weighted blend does beat both of its components, and the weighting curve slopes the
-way the plan expected — content-heavy for sparse profiles, CF-heavy for dense. **The
-cold-start one did not**: content-based scoring is the *worst* model when a user has almost
-no history, not the best. See [The hybrid](#the-hybrid) and [Cold start](#cold-start).
+- **No personalised model beats a popularity baseline on precision@10**, and every one of
+  those gaps survives a bootstrap over users. The reason is that precision@10 on this data
+  mostly measures popularity: across the nine models with a real ranking signal it
+  correlates with popularity bias at r = 0.93 and with RMSE at r = −0.03.
+- **Matrix factorisation wins on rating accuracy while recommending a narrow, popular slice
+  of the catalogue** (RMSE 0.9996, 13% catalogue coverage, popularity percentile 0.92).
+  Content-based is 14% worse on RMSE and reaches 3.5 times as much of the catalogue.
+- **Tuning for accuracy costs ranking for item-kNN, but not for matrix factorisation.**
+  Across 48 kNN settings validation RMSE and precision@10 disagree (r = +0.80), mostly
+  through the centring choice. Across 32 MF settings they agree (r = −0.42).
+- **Content-based does not cope better with cold start.** With one rating it is the least
+  accurate personalised method; matrix factorisation's bias terms give it a floor.
+- **The hybrid does not significantly beat plain matrix factorisation on precision.** Its
+  real gain is catalogue coverage, and the density-dependent crossover the plan predicted is
+  not there once matrix factorisation is regularised properly.
+- **A random train/test split flatters every method** — RMSE by 3–10%, precision@10 by
+  27–87% — which is why the protocol hides each user's most recent ratings instead.
 
 <details>
-<summary>What this replaced, and why</summary>
+<summary>Findings that changed during the project, and why</summary>
 
-The original thesis read: *"matrix factorisation wins on rating accuracy while recommending
-a narrow, popular slice of the catalogue."* The first half held. The second did not.
+Four reported results changed when a defect in matrix factorisation was fixed on
+22 September 2026 (see [The matrix factorisation fix](#the-matrix-factorisation-fix)):
 
-Accuracy-tuned matrix factorisation has the **lowest** popularity percentile of any
-personalised model here (0.5816, against 0.6168 for content-based and 0.6708 for item-kNN).
-It is narrow — 15% coverage, Gini 0.97 — but narrow and *obscure*, not narrow and popular.
-The narrow-and-popular description belongs to the ranking-tuned variant (0.8976), which is
-a different set of hyperparameters for the same algorithm.
-
-Coverage and popularity bias are separate axes, and this dataset separates them: a model
-can concentrate hard on a small set of items without those being the popular ones. Keeping
-the original wording would have meant reporting a result the numbers contradict.
+- The original thesis said MF recommends "a narrow, popular slice". Before the fix MF had
+  the *lowest* popularity percentile of any personalised model (0.58), so the thesis was
+  revised to "narrow and obscure". That was the defect talking: MF was filling 43% of its
+  lists with films rated only a handful of times. After the fix MF is narrow and popular
+  (0.92), and the original thesis stands.
+- The density-weighted hybrid appeared to confirm the plan's crossover (content-heavy for
+  sparse users, CF-heavy for dense ones) and to beat both components by a wide margin. With
+  MF fixed the fitted weight is small everywhere, there is no crossover, and the hybrid's
+  precision gain over MF is not significant. Content had been compensating for MF's defect.
+- MF's own sweep appeared to show accuracy and ranking pulling apart (r = +0.67). After the
+  fix they agree (r = −0.42). The item-kNN version of that finding was unaffected.
+- Under a random split item-kNN had briefly overtaken MF on RMSE, which suggested the choice
+  of split changes the reported winner. After the fix MF wins under both splits, so that
+  claim is withdrawn; the inflation itself still holds.
 
 </details>
 
@@ -57,11 +67,38 @@ That is the whole setup. Everything runs from a bare clone at the repository roo
 `download_data.py` fetches `ml-100k.zip` from GroupLens, checks it against both GroupLens's
 published `.md5` and the one pinned in `configs/default.yaml`, and extracts to `data/raw/`.
 
-
 `preprocess.py` writes the processed tables and the train/validation/test split into
 `data/processed/`, prints a data card, and asserts that the split has no temporal leakage.
 
 Nothing under `data/` is committed. A fresh clone reproduces it from those two commands.
+
+## Demo app
+
+```bash
+pip install -r requirements.txt
+streamlit run app/Home.py
+```
+
+Opens at http://localhost:8501 and needs the processed data from the quick start. The first
+load fits all eleven models, which takes about a minute; after that everything is cached.
+
+- **Recommend** — rate a few films, or upload your Letterboxd `ratings.csv`, and see each
+  method's picks as a row of posters. You aren't in the training data: each trained model
+  is forked and you're folded into the fork, so nothing is retrained and nothing is stored.
+- **Browse users** — any of the 943 users, with the films they went on to rate highly
+  outlined, so you can see which methods guessed right.
+- **Results** and **Experiments** — the committed CSVs as interactive charts. The sentences
+  describing each experiment are generated from the CSVs, so a re-run can't leave them stale.
+
+Posters are optional. Get a free API key from themoviedb.org and put it in
+`.streamlit/secrets.toml`, which is gitignored:
+
+```toml
+TMDB_API_KEY = "your key"
+```
+
+Without a key the app shows title cards instead. The app serves the same trained models the
+experiments evaluate, but it never produces a reported number.
 
 ## Running experiments
 
@@ -186,10 +223,10 @@ build each one.
 | `content` | cosine to user profile | Mean-centred TF-IDF profile; cosine calibrated onto the rating scale on validation |
 | `item_knn` | predicted rating | Mean-centred cosine with significance shrinkage; base term shrunk like `item_mean`. Tuned on validation RMSE |
 | `item_knn_ranking` | predicted rating | Same algorithm, tuned on validation precision@10. Lands on the other centring convention |
-| `mf` | predicted rating | Biases + L2, SGD, early stopping on validation. Tuned on validation RMSE |
-| `mf_ranking` | predicted rating | Same algorithm, tuned on validation precision@10. Much weaker L2 |
+| `mf` | predicted rating | Biases + L2, SGD, early stopping on validation. Biases shrunk like `item_mean` (see [the fix](#the-matrix-factorisation-fix)). Tuned on validation RMSE |
+| `mf_ranking` | predicted rating | Same algorithm, tuned on validation precision@10. Not significantly different from `mf` on precision since the fix |
 | `hybrid` | blended, z-scored per user | Content + MF, weight a fitted function of the user's history length |
-| `hybrid_frontier` | blended, z-scored per user | Content + MF at a fixed w=0.4, chosen on the validation frontier |
+| `hybrid_frontier` | blended, z-scored per user | Content + MF at a fixed weight, chosen on the validation frontier |
 
 Two behaviours that read as bugs and are not:
 
@@ -204,8 +241,9 @@ floor; `most_popular` is the ranking floor.
 
 ## Where validation is used
 
-Validation reaches exactly two models — `content` for its cosine calibration, `mf` for
-early stopping — and never reaches evaluation. A test overwrites every validation rating
+Validation reaches the models in three places — `content` for its cosine calibration, `mf`
+for early stopping, and `run_hybrid` for fitting the hybrid's weights — and never reaches
+evaluation. A test overwrites every validation rating
 and asserts the test-split numbers of the models that ignore validation do not move.
 
 ## Results
@@ -220,12 +258,12 @@ and asserts the test-split numbers of the models that ignore validation do not m
 | Content-based | 1.1422 | 0.9093 | 0.0201 | 0.0193 | 0.4552 | 0.6168 | 0.8359 |
 | Item-kNN (RMSE-tuned) | 1.0162 | 0.7992 | 0.0357 | 0.0246 | 0.3378 | 0.6708 | 0.9130 |
 | Item-kNN (ranking-tuned) | 1.1153 | 0.8754 | 0.0455 | 0.0367 | 0.3740 | 0.8133 | 0.9097 |
-| Matrix factorisation (RMSE-tuned) | 0.9877 | 0.7812 | 0.0267 | 0.0261 | 0.1460 | 0.5816 | 0.9727 |
-| Matrix factorisation (ranking-tuned) | 1.0102 | 0.7991 | 0.0451 | 0.0403 | 0.1410 | 0.8976 | 0.9690 |
-| Hybrid (density-weighted) | 1.0132 | 0.8044 | 0.0333 | 0.0296 | 0.3683 | 0.6729 | 0.8966 |
-| Hybrid (fixed w=0.4) | 1.0179 | 0.8090 | 0.0339 | 0.0311 | 0.2990 | 0.6889 | 0.9173 |
+| Matrix factorisation (RMSE-tuned) | 0.9996 | 0.7908 | 0.0523 | 0.0464 | 0.1308 | 0.9162 | 0.9773 |
+| Matrix factorisation (ranking-tuned) | 1.0108 | 0.8007 | 0.0519 | 0.0446 | 0.1498 | 0.9191 | 0.9705 |
+| Hybrid (density-weighted) | 1.0084 | 0.7991 | 0.0542 | 0.0484 | 0.1333 | 0.9166 | 0.9745 |
+| Hybrid (fixed weight) | 1.0227 | 0.8116 | 0.0545 | 0.0490 | 0.1886 | 0.9026 | 0.9577 |
 
-Test split: 20000 held-out ratings; ranking metrics averaged over the 906 users with at least one relevant held-out item. Seed 20260903, run 20260910T172910.
+Test split: 20000 held-out ratings; ranking metrics averaged over the 906 users with at least one relevant held-out item. Seed 20260903, run 20260922T172819.
 
 Lower is better for RMSE, MAE and the two popularity columns. Higher is better for precision, recall and coverage.
 <!-- RESULTS_TABLE_END -->
@@ -242,199 +280,128 @@ Metrics reported side by side, per model:
 
 ### What the results show
 
-**precision@10 measures popularity, not accuracy.** Across the eleven models, precision@10
-correlates with popularity bias at r = 0.68 and with RMSE at r = 0.11. Dropping the two
-baselines whose ranking is degenerate by construction, that becomes **r = 0.91 against
-popularity** and 0.53 against RMSE. Whatever precision@10 is rewarding on this dataset, it
-is much closer to "shows popular films" than to "predicts ratings well".
+**precision@10 measures popularity, not accuracy.** Across the nine models with a real
+ranking signal (leaving out global and user mean, whose rankings are arbitrary),
+precision@10 correlates with popularity bias at r = 0.93 and with RMSE at r = −0.03. Over
+all eleven the figures are 0.76 and −0.38. Nine models is a small sample and several are
+variants of one another, so treat these as a description of this table rather than an
+estimate of anything wider.
 
-The tuning experiment makes this concrete rather than correlational. Selecting the *same
-algorithm* on precision instead of RMSE moves it towards the popularity end:
+**No personalised model beats most-popular on precision@10.** Most-popular scores 0.0657;
+the best personalised model, the fixed-weight hybrid, scores 0.0545. Most-popular gets
+there by showing everyone the same 4% of the catalogue at the 99th popularity percentile.
 
-| | RMSE-tuned | ranking-tuned |
-|---|---|---|
-| Matrix factorisation, P@10 | 0.0267 | **0.0451** |
-| Matrix factorisation, popularity percentile | 0.5816 | **0.8976** |
-| Item-kNN, P@10 | 0.0357 | **0.0455** |
-| Item-kNN, popularity percentile | 0.6708 | **0.8133** |
+**Accuracy and reach pull apart.** Matrix factorisation has the best RMSE (0.9996) and
+recommends from 13% of the catalogue; content-based is 14% worse on RMSE and reaches 46%.
 
-Both variants buy their precision with popularity. Neither reaches most-popular's 0.0657,
-which sits at a popularity percentile of 0.9935 — the ordering on precision is close to the
-ordering on popularity bias throughout.
-
-**No personalised model beats most-popular on precision@10**, and the bootstrap says that
-is real rather than noise — every interval excludes zero (`results/bootstrap_ci.csv`). On
-precision alone the correct conclusion from this table would be "do not personalise". That
-is the strongest available argument for reporting catalogue behaviour beside accuracy, and
-it is an argument the data made rather than one we assumed.
-
-**The accuracy and catalogue families genuinely pull apart.** Matrix factorisation wins RMSE
-at 0.9877 while showing 15% of the catalogue; content-based is 15% worse on RMSE at 1.1422
-and reaches 46%. Item-kNN sits between them on both and is the best all-rounder — second
-on RMSE, twice MF's coverage.
-
-**Hyperparameter selection is a reportable finding, not a preliminary.** Within a single
-algorithm, validation RMSE and validation precision@10 pick different configurations, and
-pick them strongly: item-kNN loses 46% of its precision when selected on RMSE, and even
-switches centring convention (item centring wins accuracy, user centring wins ranking).
-Both sweeps show the same anti-correlation — r = +0.67 for MF over 32 configs, r = +0.80
-for kNN over 48. See `results/tuning_*.csv`.
-
-One caveat on the correlations above: eleven models is a small sample, and the models are
-not independent draws — four of them are retuned or blended versions of the other two.
-Treat r = 0.91 as a description of this table rather than an estimate of a population
-parameter. The tuning sweeps, with 32 and 48 configurations each, are the
-better-powered version of the same claim.
+**For item-kNN, tuning for accuracy costs ranking.** Validation RMSE and precision@10
+disagree across its 48 settings (r = +0.80): item centring wins on accuracy, user centring
+(adjusted cosine) on ranking, and the precision-selected setting scores 46% higher on
+precision than the RMSE-selected one. That is why item-kNN is registered twice. For matrix
+factorisation the two criteria agree (r = −0.42 across 32 settings), and on the test set
+the ranking-tuned variant is not significantly different from the accuracy-tuned one on
+precision.
 
 ### Are these gaps real?
 
 `results/bootstrap_ci.csv` resamples the 906 scored users 1000 times, paired across models,
-and puts a 95% interval on every pairwise difference. Resampling users rather than ratings
-matters: one person's 700 ratings are not 700 independent observations, and resampling
-ratings would produce intervals far too narrow.
+and gives a 95% interval for every pairwise difference. Users are resampled rather than
+ratings, because one person's ratings are not independent of each other.
 
-Every claim the results section leans on excludes zero.
+| Comparison | Difference | 95% interval | Real |
+|---|---|---|---|
+| MF − most-popular, P@10 | −0.0134 | [−0.0203, −0.0067] | yes |
+| Hybrid (fixed) − most-popular, P@10 | −0.0111 | [−0.0183, −0.0040] | yes |
+| Item-kNN − most-popular, P@10 | −0.0300 | [−0.0366, −0.0234] | yes |
+| Item-kNN − MF, RMSE | +0.0163 | [+0.0071, +0.0288] | yes |
+| Hybrid (density) − MF, P@10 | +0.0019 | [−0.0004, +0.0041] | no |
+| MF − MF (ranking), P@10 | +0.0003 | [−0.0035, +0.0041] | no |
+| Item-kNN − Item-kNN (ranking), RMSE | −0.0995 | [−0.1217, −0.0778] | yes |
 
-| Comparison | Difference | 95% interval |
-|---|---|---|
-| MF − most-popular, P@10 | −0.0390 | [−0.0455, −0.0327] |
-| Item-kNN − most-popular, P@10 | −0.0300 | [−0.0366, −0.0234] |
-| Best personalised (kNN-ranking) − most-popular, P@10 | −0.0203 | [−0.0271, −0.0131] |
-| MF − item-kNN, RMSE | −0.0283 | [−0.0368, −0.0208] |
-| MF − MF-ranking, P@10 | −0.0185 | [−0.0234, −0.0141] |
-| MF − MF-ranking, RMSE | −0.0226 | [−0.0286, −0.0153] |
-| Item-kNN − kNN-ranking, RMSE | −0.0995 | [−0.1217, −0.0778] |
+Most-popular's lead on precision is real against every personalised model, including the
+closest. MF's RMSE lead over item-kNN is real. The hybrid's precision edge over MF is not.
 
-So: most-popular's advantage on precision is real against every personalised model
-including the ranking-tuned ones; matrix factorisation's RMSE win over item-kNN is real;
-and the selection-criterion trade-off is real in both directions — the ranking-tuned
-variants really do rank better and really are less accurate.
+### The matrix factorisation fix
+
+The first version of matrix factorisation used plain L2 on its biases. Summed over an item's
+n ratings, per-rating L2 minimises Σ err² + nλb², which solves to b = mean deviation / (1 + λ)
+— a constant shrink factor, whatever n is. A film rated once kept almost its whole deviation.
+Every other model here shrinks by n / (n + β) (item mean, user mean and the item-kNN base
+term all use β = 10), so MF treated thin evidence differently from everything it was being
+compared against.
+
+The effect was large. 43% of MF's top-10 slots went to films with fewer than ten ratings,
+and those were liked 0.08% of the time. A bias penalty of β/n per rating instead solves to
+exactly Σ dev / (n + β); with it that share drops to 0.1%, precision@10 roughly doubles
+(0.0267 → 0.0523 on test) and RMSE rises slightly (0.9877 → 0.9996). The MF sweep, the
+hybrid and every experiment were re-run afterwards. Four earlier findings changed; they are
+listed in the collapsed section at the top.
+
+It showed up through the demo app rather than the metrics: MF's top pick for user 1 was a
+film with seven training ratings.
 
 ### The hybrid
 
 `results/hybrid_weights.csv`, `results/hybrid_frontier.csv`, `figures/hybrid.pdf`. Both
-hybrids blend content and matrix factorisation scores, z-scored per user because cosine
-similarities and predicted ratings are not on the same scale. Weights are fitted on
-validation.
+hybrids blend content and MF scores, z-scored per user first, because cosine similarities
+and predicted ratings are not on the same scale.
 
-**The blend beats both of its components in every density bin.** Validation precision@10:
+The density-weighted hybrid learns a content weight as a function of how many ratings a user
+has, w(n) = sigmoid(a + b·log(1 + n)), fitted on validation. The plan expected a crossover:
+content-heavy for sparse users, CF-heavy for dense ones. The fitted curve is
+sigmoid(−2.90 + 0.23·log(1 + n)) — a content weight of about 0.10 for sparse users and 0.17
+for dense ones, so no crossover — and the best weight per history group (0.1, 0.0, 0.3,
+0.2, 0.1) shows no pattern in history length.
 
-| history | users | best content weight | blended | pure MF | pure content |
-|---|---|---|---|---|---|
-| 1–20 | 155 | 0.7 | **0.0039** | 0.0032 | 0.0032 |
-| 21–40 | 220 | 0.4 | **0.0145** | 0.0068 | 0.0064 |
-| 41–100 | 247 | 0.3 | **0.0312** | 0.0190 | 0.0138 |
-| 101–250 | 213 | 0.5 | **0.0399** | 0.0207 | 0.0211 |
-| 251+ | 29 | 0.2 | **0.0621** | 0.0483 | 0.0414 |
+On validation the best fixed blend (0.2 content) beats pure MF on precision@10 by 14%, and
+precision peaks in the middle of the weight sweep rather than at either end. On test the
+hybrid's precision edge over MF is not significant. What does hold up is reach: the
+fixed-weight hybrid covers 19% of the catalogue against MF's 13% at similar precision.
 
-The fitted curve is `w(n) = sigmoid(1.9691 − 0.55·log(1+n))` — content weight falls from
-0.59 at ~17 ratings to 0.24 at ~282. That is the crossover the plan predicted, and it
-survives onto the test split: the density hybrid scores precision@10 of 0.0333 against
-0.0267 for matrix factorisation and 0.0201 for content-based.
-
-This is worth stating carefully, because it contradicts what the cold-start results seemed
-to imply. Content-based loses to matrix factorisation in *every* density bin taken alone.
-Blending it in still helps, because blending exploits **decorrelated errors**, not the
-superiority of one component. "A is worse than B everywhere" does not imply "adding A to B
-cannot help", and reasoning from the first to the second is the mistake this experiment
-was almost skipped over.
-
-The frontier panel makes the same point on one axis: precision@10 peaks in the *middle* of
-the weight sweep, not at either end.
-
-| weight | val RMSE | val P@10 | val coverage@10 |
-|---|---|---|---|
-| 0.0 (pure MF) | **0.9483** | 0.0145 | 0.1422 |
-| 0.4 | 0.9675 | **0.0234** | 0.2940 |
-| 1.0 (pure content) | 1.0612 | 0.0127 | **0.4502** |
-
-**The honest limitation.** The hybrid beats its own components, but it does not beat the
-best single models in this repository. Item-kNN alone reaches precision@10 of 0.0357 at
-RMSE 1.0162 with 0.3378 coverage — matching or beating the density hybrid's 0.0333 / 1.0132
-/ 0.3683 on nearly every axis, with one model instead of two. And nothing here beats
-most-popular's 0.0657 on precision. So the hybrid validates the *mechanism* the plan
-described without producing the best recommender in the comparison, and the report should
-say so rather than presenting it as the winner.
-
-The validation gains were also larger than the test gains — +61% precision over pure MF on
-validation against +27% on test — so some of the validation improvement was selection
-noise, as expected when a weight is chosen on the same split it is measured on.
+Before the MF fix this section reported a clear crossover and a large gain. Content was
+compensating for MF's thin-item problem, most of all for sparse users; once MF was fixed
+there was little left for it to compensate for.
 
 ### Cold start
 
-`results/cold_start.csv` and `figures/cold_start.pdf`. 200 users have their training
-history truncated to 1, 3, 5, 10 and 20 ratings; the other 743 are left intact so the
-model's view of the catalogue stays normal, and evaluation is restricted to the truncated
-users. Every model is refitted at every level.
+`results/cold_start.csv`, `figures/cold_start.pdf`. 200 users have their training history
+cut to 1, 3, 5, 10 and 20 ratings. Everyone else is left intact, every model is retrained at
+each level, and only the truncated users are scored.
 
-**The prediction was wrong.** Content-based scoring was expected to hold up best with
-almost no history, since it can score an item from its features without needing co-raters.
-It is in fact the **worst** model at one rating, on both metrics.
+The plan predicted content-based would cope best with almost no history, since it doesn't
+need co-raters. It copes worst:
 
-| Test RMSE | 1 rating | 20 ratings | degradation |
-|---|---|---|---|
-| Matrix factorisation | **1.0538** | 1.0010 | +0.053 |
-| Item-kNN | 1.2536 | 1.0400 | +0.214 |
-| Content-based | **1.4761** | 1.1262 | +0.350 |
-| Global mean | 1.2074 | 1.2086 | — |
+| Test RMSE | 1 rating | 20 ratings |
+|---|---|---|
+| Hybrid (density) | **1.0845** | 1.0289 |
+| Matrix factorisation | 1.0873 | 1.0269 |
+| Item-kNN | 1.2536 | 1.0400 |
+| Content-based | **1.4761** | 1.1262 |
+| Global mean | 1.2074 | 1.2086 |
 
-At one rating, content-based is worse than predicting the global mean for everybody. Its
-precision@10 is also last of the nine (0.0147 against most-popular's 0.0406).
-
-Matrix factorisation is the most robust of the personalised models, and the reason is its
-bias terms. With one rating there is nothing to learn about a user's taste, but `mu + b_u +
-b_i` is still a competent predictor, so the model degrades to a good baseline rather than
-to noise. Content-based has no such floor: with one rated film the profile *is* that film's
-feature vector, and a globally-fitted calibration turns that into confident, wrong
-predictions.
-
-The one thing content-based does keep is reach — 43% catalogue coverage at a single rating,
-against 3% for matrix factorisation. So the honest version of the original claim is that
-content-based survives cold start in *coverage*, not in accuracy or ranking.
-
-A detail that acts as a correctness check: at one rating, item-kNN (ranking-tuned) scores
-exactly the same RMSE as the item-mean baseline, 1.0752. It uses user centring, so with a
-single rating the user's mean equals that rating, every deviation is zero, and the model
-correctly falls back to its shrunk item mean.
-
-**This undercuts the hybrid as specified.** The plan was content-heavy for sparse profiles
-and CF-heavy for dense ones. On this data content is worst exactly where it was meant to
-be strongest, so a density-weighted blend towards content would make sparse users worse,
-not better. The hybrid needs rethinking before it is built rather than after.
+With one rating content-based is worse than predicting the global mean, and its precision@10
+is the lowest of the personalised models (0.0147). Matrix factorisation's bias terms give it
+a floor: one rating says nothing about taste, but μ + b_u + b_i is still a reasonable
+prediction. Content-based does keep its reach — 43% catalogue coverage at one rating.
 
 ### Why not a random split
 
-`results/split_ablation.csv` runs the identical pipeline under both splits. Every model
-looks better under a random row split — RMSE by 5.5–10.3%, precision@10 by 27–87%.
+`results/split_ablation.csv` runs the same pipeline under the temporal split and under a
+random row split of the same proportions. The random split lets a user's later ratings into
+training and makes every model look better: RMSE improves by 3–10% and precision@10 by
+27–87%. The inflation is uneven — most-popular gains most on precision (+87%) and
+content-based least (+27%) — so a random split distorts the comparison, not just the
+absolute numbers.
 
-The distortion is not uniform, and it lands on the number the report leads with:
+Things to know before quoting anything:
 
-| Metric | Temporal winner | Random winner |
-|---|---|---|
-| RMSE | Matrix factorisation (0.9962) | **Item-kNN** (0.9289) |
-
-Under the temporal split MF beats item-kNN by 0.0209 RMSE. Under a random split the order
-reverses and item-kNN wins by 0.0035. **The choice of split changes which model is reported
-as the most accurate.** The random-split margin is small, so calling that a firm reversal
-needs the bootstrap intervals rather than point estimates — but it is more than enough to
-justify the protocol.
-
-One expectation this experiment overturned: the inflation is *larger for the weaker
-models*, not the stronger ones. Content-based gains most on RMSE (−10.3%) and MF least
-(−6.4%); most-popular gains most on precision (+87%) and content least (+27%). In hindsight
-that is the more sensible prediction — MF already extracts most of the available signal, so
-leaked information has less headroom to help it.
-
-Two artifacts to be aware of before quoting anything:
-
-- `global_mean` scores a non-zero precision@10 of 0.0233 despite having no ranking signal
-  at all. Its tie-break is ascending item id, and low item ids in ML-100K are the early,
-  popular films. That number is an artifact of the dataset's id ordering, not a signal.
+- `global_mean` scores a non-zero precision@10 of 0.0233 despite having no ranking signal.
+  Its tie-break is ascending item id, and low item ids in ML-100K are the early, popular
+  films.
 - `most_popular` and `global_mean` have identical RMSE by construction — most-popular
   predicts the global mean and only its ranking differs.
-- The two `*_ranking` models are the same code as their twins with different
-  hyperparameters, not different algorithms. They exist to make the selection-criterion
-  effect a row in this table rather than a claim in the prose.
+- The `*_ranking` models and `hybrid_frontier` are the same code as their twins with
+  different settings, not different algorithms.
 
 ## Layout
 
@@ -450,6 +417,8 @@ src/evaluation/          metrics.py (accuracy), ranking.py, harness.py, bootstra
 src/experiments/         registry.py builds models; run_*.py run a config and dump CSVs
 src/experiments/recommend.py  the demo CLI, films rather than decimals
 src/plots/               style.py plus scripts that read CSVs and write figures
+src/engine/              the recommendation engine (fold-in, forking) and poster lookup
+app/                     the Streamlit demo; Home.py routes to app/views/
 tests/                   pytest, run locally; no CI
 results/                 committed CSVs, the report's source of truth
 figures/                 committed figures
@@ -461,8 +430,8 @@ figures/                 committed figures
 |---|---|
 | `figures/accuracy.pdf` | RMSE and MAE per model |
 | `figures/tradeoff.pdf` | **The headline.** Accuracy against reach, and precision against popularity bias |
-| `figures/tuning.pdf` | Both sweeps: selecting on accuracy costs ranking, within one algorithm |
-| `figures/hybrid.pdf` | The fitted weighting curve, and the blend beating both endpoints |
+| `figures/tuning.pdf` | Both sweeps: accuracy and ranking disagree for item-kNN, agree for MF |
+| `figures/hybrid.pdf` | The fitted weighting curve, and precision against coverage across blend weights |
 | `figures/cold_start.pdf` | How each model degrades as history shrinks |
 
 ## Development
@@ -488,8 +457,15 @@ Run experiments and tests from the repository root, so that `src` resolves:
 python -m src.experiments.run_main
 ```
 
-Tests run locally; there is no CI. The suite uses a synthetic fixture rather than the real
-dataset, so it runs in under a second and works on a clone with no `data/` directory.
+Tests run locally; there is no CI. Almost all of the suite uses a synthetic fixture rather
+than the real dataset, so it works on a clone with no `data/` directory. The exception is
+`tests/test_app.py`, which drives every page of the demo app headlessly; it needs the
+processed data and skips itself without it.
+
+`tests/test_fold_in.py` checks that adding a new user to a trained model gives exactly the
+same recommendations as training on that user, for every model where that has a closed
+form. The app depends on it: it is what makes the app serve the same models the report
+evaluates.
 
 `tests/test_splitting.py` is the important one — it asserts that no user's training ratings
 postdate their held-out ratings. If it fails, every number in `results/` is wrong.

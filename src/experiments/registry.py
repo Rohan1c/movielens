@@ -10,12 +10,12 @@ table, matrix factorisation takes a validation split for early stopping - so eac
 a builder function with a uniform signature. Everything after construction is the shared
 interface.
 
-Two models appear twice under different names. Both sweeps in results/tuning_*.csv found
-that validation RMSE and validation precision@10 pick different configurations of the same
-algorithm, and pick them strongly: item-kNN loses 46 percent of its precision when selected
-on RMSE, and even changes centring convention. Registering the accuracy-tuned and
-ranking-tuned settings as separate models puts that in the results table as a row rather
-than leaving it in the report as an assertion.
+Two models appear twice under different names, tuned once on validation RMSE and once on
+validation precision@10. For item-kNN the two criteria pick very different settings - the
+precision-selected one scores 46 percent higher on precision and uses the other centring
+convention. For matrix factorisation they now mostly agree (see results/tuning_mf.csv).
+Registering both puts each outcome in the results table as a row rather than leaving it in
+the report as an assertion.
 """
 
 from src.models.baselines import GlobalMean

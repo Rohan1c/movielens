@@ -77,8 +77,9 @@ models:
     n_epochs: 60
     patience: 5
     init_scale: 0.1
-  # Selected on validation precision@10 from the same sweep. Weaker regularisation: across
-  # the grid, stronger L2 buys RMSE and costs ranking.
+  # Selected on validation precision@10 from the same sweep. Since the bias shrinkage fix
+  # the two criteria mostly agree for MF, and on test this variant is not significantly
+  # different from mf on precision. Kept so that finding stays visible in the table.
   mf_ranking:
     bias_shrinkage: 10.0
     n_factors: 16
