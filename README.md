@@ -57,11 +57,6 @@ That is the whole setup. Everything runs from a bare clone at the repository roo
 `download_data.py` fetches `ml-100k.zip` from GroupLens, checks it against both GroupLens's
 published `.md5` and the one pinned in `configs/default.yaml`, and extracts to `data/raw/`.
 
-> **GroupLens's certificate expired on 28 Aug 2026.** Until they renew, add
-> `--allow-expired-cert`. That does *not* disable verification — it pins the certificate,
-> requiring the server to present exactly the one whose SHA-256 is in the config and
-> ignoring only the expiry date. It trusts no certificate authority, so it is stricter than
-> the default path. Delete the flag and the pin once they renew.
 
 `preprocess.py` writes the processed tables and the train/validation/test split into
 `data/processed/`, prints a data card, and asserts that the split has no temporal leakage.
