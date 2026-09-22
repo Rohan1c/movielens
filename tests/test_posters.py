@@ -116,3 +116,26 @@ def test_results_without_a_poster_are_skipped():
     payload = {"results": [{"poster_path": None}, {"poster_path": "/second.jpg"}]}
     assert first_poster_path(payload) == "/second.jpg"
     assert first_poster_path({}) == ""
+
+
+def test_prefetch_fetches_only_uncached_films_and_saves_once(cache_path):
+    fake = FakeTmdb({"results": [{"poster_path": "/abc.jpg"}]})
+    client = PosterClient(FAKE_KEY, cache_path, fetch=fake)
+    client.poster_url("Star Wars (1977)", 1977)
+    films = [("Star Wars (1977)", 1977), ("Alien (1979)", 1979), ("Alien (1979)", 1979)]
+    client.prefetch(films)
+    assert len(fake.urls) == 2
+    assert client.poster_url("Alien (1979)", 1979) == IMAGE_BASE + "/abc.jpg"
+
+
+def test_prefetch_does_not_cache_failures(cache_path):
+    """A network blip must be retried later, unlike a film TMDB has no poster for."""
+    client = PosterClient(FAKE_KEY, cache_path, fetch=FakeTmdb(error=OSError("down")))
+    client.prefetch([("Alien (1979)", 1979)])
+    assert client.cache == {}
+
+
+def test_prefetch_without_a_key_does_nothing(cache_path):
+    fake = FakeTmdb({"results": [{"poster_path": "/abc.jpg"}]})
+    PosterClient(None, cache_path, fetch=fake).prefetch([("Alien (1979)", 1979)])
+    assert fake.urls == []
