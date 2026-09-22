@@ -24,10 +24,13 @@ st.write("Every user's most recent ratings were hidden from the models. Pick som
          "what they rated before, what they rated highly afterwards, and which methods "
          "recommended those films. Films they went on to like are outlined in green.")
 
-controls = st.columns([1, 1, 4])
-controls[0].number_input("User", min_value=min(users), max_value=max(users), step=1, key="user")
-controls[1].markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
-controls[1].button("Random", on_click=pick_random_user, use_container_width=True)
+# A horizontal container sizes the button to its label; fixed columns squeezed it to
+# "Rando / m" on a narrow window.
+controls = st.container(horizontal=True, horizontal_alignment="left",
+                        vertical_alignment="bottom", gap="small")
+controls.number_input("User", min_value=min(users), max_value=max(users), step=1, key="user",
+                      width=160)
+controls.button("Random", on_click=pick_random_user)
 user_id = int(st.session_state["user"])
 
 history = engine.history(user_id)
