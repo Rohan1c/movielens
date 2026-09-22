@@ -48,7 +48,7 @@ MODEL_LABELS = {
     "mf": "MF",
     "mf_ranking": "MF (ranking)",
     "hybrid": "Hybrid (density)",
-    "hybrid_frontier": "Hybrid (w=0.4)",
+    "hybrid_frontier": "Hybrid (fixed)",
 }
 
 

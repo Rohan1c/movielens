@@ -46,7 +46,7 @@ def draw_weight_curve(axis, weights):
     axis.set_xlabel("training ratings the user has")
     axis.set_ylabel("weight given to the content model")
     axis.set_ylim(0.0, 1.0)
-    axis.set_title("Learned weighting: content-heavy when sparse")
+    axis.set_title("Learned content weight by history length")
     axis.legend(loc="upper right")
 
 
