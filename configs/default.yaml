@@ -66,6 +66,11 @@ models:
     mean_shrinkage: 10.0
   # Selected on validation RMSE from results/tuning_mf.csv.
   mf:
+    # Bias penalty of beta/n per rating, so biases solve to sum_dev/(n + beta) - the
+    # same shrinkage item_mean, user_mean and the item-kNN base term use. Plain L2 shrank
+    # every bias by one constant factor and let items with a handful of ratings fill
+    # 43 percent of the top-10 lists.
+    bias_shrinkage: 10.0
     n_factors: 32
     learning_rate: 0.01
     regularisation: 0.1
@@ -75,9 +80,10 @@ models:
   # Selected on validation precision@10 from the same sweep. Weaker regularisation: across
   # the grid, stronger L2 buys RMSE and costs ranking.
   mf_ranking:
+    bias_shrinkage: 10.0
     n_factors: 16
-    learning_rate: 0.005
-    regularisation: 0.005
+    learning_rate: 0.01
+    regularisation: 0.05
     n_epochs: 60
     patience: 5
     init_scale: 0.1
@@ -85,13 +91,13 @@ models:
   # validation by run_hybrid and copied here by hand; w(n) = sigmoid(a + b*log(1+n)) is
   # the share given to the content model for a user with n training ratings.
   hybrid:
-    curve_intercept: 1.9691
-    curve_slope: -0.55
+    curve_intercept: -2.9042
+    curve_slope: 0.2339
     # Fingerprint of the component settings these constants were fitted against.
     # Retune content or mf and building the hybrid fails until run_hybrid is redone.
-    components: 746a47cf212e03e3
+    components: 0f92975dfb904b65
   # Fixed-weight blend at the point on the validation frontier that buys the most coverage
   # for at most 0.02 RMSE against the pure collaborative end.
   hybrid_frontier:
-    fixed_weight: 0.4
-    components: 746a47cf212e03e3
+    fixed_weight: 0.3
+    components: 0f92975dfb904b65
